@@ -95,10 +95,6 @@ typedef int tid_t;
 
     /* new code for project 1 */
     int64_t tick_wakeup;                /* Tick till wake up */
-    struct lock *lock_to_wait;          /* Address of the lock to wait */
-    int original_priority;              /* Original Priority value */
-    struct list donors;                 /* Doners for priority inversion */
-    struct list_elem donelem;           /* List element for donors list */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
