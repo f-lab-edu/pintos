@@ -21,6 +21,7 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -45,16 +46,58 @@ process_execute (const char *file_name)
   return tid;
 }
 
+/* Collapses additional spaces so that only single space remains
+*/
+void collapse_spaces(char *str) {
+  char *source = str, *destination = str;
+  bool in_space = false;
+
+  while (*source) {
+    if (*source == ' ') {
+      if (in_space == false) {
+        *destination++ = ' ';
+        in_space = true;
+      }
+    } else {
+      *destination++ = *source;
+      in_space = false;
+    }
+    source++;
+  }
+
+  *destination = '\0';
+}
+
 /* A thread function that loads a user process and starts it
    running. */
 static void
 start_process (void *file_name_)
 {
-  char *file_name = file_name_;
+  /* Parse the first argument */
+  collapse_spaces(file_name_);
+  const int MAX_COUNT_ARGUMENT = 20;
+  const int MAX_LENGTH_ARGUMENT = 120;
+  char argv[MAX_COUNT_ARGUMENT][MAX_LENGTH_ARGUMENT];
+  int argc = 0;
+  char *saveptr, *token = strtok_r(file_name_, " ", &saveptr);
+  
+  while (token != NULL && argc < MAX_COUNT_ARGUMENT) {
+    strlcpy(argv[argc], token, MAX_LENGTH_ARGUMENT);
+    
+    ++argc;
+    token = strtok_r(NULL, " ", &saveptr);
+  }
+  char *file_name = argv[0];
+
+  /* this is crucial because it ensures that the last argument in the argument list is a valid, empty string, 
+     which helps maintain proper stack alignment and marks the end of the argument list in low-level systems */
+  argv[argc][0] = '\0';    
+
+
+  /* Initialize interrupt frame and load executable. */
   struct intr_frame if_;
   bool success;
 
-  /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
@@ -65,6 +108,34 @@ start_process (void *file_name_)
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
+
+
+  /* Push arguments to interrupt frame with the 80x86 calling convention. 
+     The registers in interrupt frame will be restored to user stack of the loaded executable */
+  int sum_bits = 0;
+  for(int length, current_count = argc -1; current_count > -1; --current_count) {
+    length = strlen(argv[current_count]) + 1;
+    if_.esp -= length;    // decrement is needed because stack should be moved downward
+    memcpy(if_.esp, argv[current_count], length);
+    sum_bits += length;
+  }
+  uint8_t padding_value = 0;
+  for(int current_count = 0, end_count = (4 - sum_bits % 4) % 4; current_count < end_count; current_count++) {
+    --if_.esp;
+    memcpy(if_.esp, &padding_value, 1);
+  }
+  for(int current_count = argc; current_count > -1; --current_count) {
+    if_.esp -= sizeof(char*);
+    memcpy(if_.esp, &argv[current_count], sizeof(char*));
+  }
+  if_.esp -= sizeof(char**);
+  memcpy(if_.esp, &argv, sizeof(char**));
+  if_.esp -= sizeof(int);
+  memcpy(if_.esp, &argc, sizeof(int));
+  void *fake_address = NULL;
+  if_.esp -= sizeof(void*);
+  memcpy(if_.esp, &fake_address, sizeof(void*));
+  
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -131,7 +202,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -315,7 +386,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_close (file);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
