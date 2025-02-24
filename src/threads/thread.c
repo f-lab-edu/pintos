@@ -314,7 +314,6 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -590,6 +589,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   list_init(&t->children);
   sema_init(&t->sema_child, 0);
+  t->exit_status = -1;
 
 
   old_level = intr_disable ();
