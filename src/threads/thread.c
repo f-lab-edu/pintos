@@ -205,10 +205,10 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-
+  #ifdef USERPROG
   /* push child process to parent */
   list_push_back(&thread_current()->children, &t->childelem);
-
+  #endif
 
   /* Add to run queue. */
   thread_unblock(t);
@@ -587,10 +587,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->original_priority = priority;
   list_init(&t->donors);
 
+  #ifdef USERPROG
   list_init(&t->children);
   sema_init(&t->sema_child, 0);
   t->exit_status = -1;
-
+  t->next_fd = 3;
+  for(unsigned current_index = 0; current_index < FD_TABLE_MAX_SLOT; ++current_index)
+    t->fd_table[current_index] = NULL;
+  #endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
