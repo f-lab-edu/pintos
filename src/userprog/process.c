@@ -39,7 +39,8 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  char *saveptr, *token = strtok_r(file_name, " ", &saveptr);       // parse the first argument only to make it as name of the thread
+  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -159,16 +160,18 @@ process_wait (tid_t child_tid)
   struct thread* child_thread = NULL, *current_thread = thread_current();
   for(struct list_elem *current_element = list_begin(&current_thread->children), *end_element = list_end(&current_thread->children); current_element != end_element; current_element = list_next(current_element)) {
     struct thread *thread_current_element = list_entry(current_element, struct thread, childelem);
-    if (thread_current_element->tid == child_tid)
+    if (thread_current_element->tid == child_tid) {
       child_thread = thread_current_element;
+      list_remove(&current_element);
+      break;
+    }
   }
   if(child_thread == NULL) {
     return -1;
   }
 
   sema_down(&child_thread->sema_child);
-  list_remove(&current_thread->childelem);
-  return child_thread->status;
+  return child_thread->exit_status;
 }
 
 /* Free the current process's resources. */
