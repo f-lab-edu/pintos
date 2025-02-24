@@ -112,6 +112,7 @@ typedef int tid_t;
     /* new code for project 2 */
     struct list children;               /* List of child processes */
     struct list_elem childelem;         /* List element for child processes */
+    struct semaphore sema_parent;        /* Semaphore for waiting parent process*/
     struct semaphore sema_child;        /* Semaphore for waiting child process*/
     int exit_status;                    /* Exit status for exit() */
 
