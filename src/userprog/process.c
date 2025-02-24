@@ -73,8 +73,8 @@ start_process (void *file_name_)
 {
   /* Parse the first argument */
   collapse_spaces(file_name_);
-  const int MAX_COUNT_ARGUMENT = 20;
-  const int MAX_LENGTH_ARGUMENT = 120;
+  const int MAX_COUNT_ARGUMENT = 32;
+  const int MAX_LENGTH_ARGUMENT = 64;
   char argv[MAX_COUNT_ARGUMENT][MAX_LENGTH_ARGUMENT];
   int argc = 0;
   char *saveptr, *token = strtok_r(file_name_, " ", &saveptr);
@@ -157,7 +157,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
-  struct thread* child_thread = NULL, *current_thread = thread_current();
+  struct thread *child_thread = NULL, *current_thread = thread_current();
   for(struct list_elem *current_element = list_begin(&current_thread->children), *end_element = list_end(&current_thread->children); current_element != end_element; current_element = list_next(current_element)) {
     struct thread *thread_current_element = list_entry(current_element, struct thread, childelem);
     if (thread_current_element->tid == child_tid) {
@@ -166,12 +166,14 @@ process_wait (tid_t child_tid)
       break;
     }
   }
-  if(child_thread == NULL) {
+  if(child_thread == NULL)
     return -1;
-  }
 
   sema_down(&child_thread->sema_child);
-  return child_thread->exit_status;
+  int exit_status = child_thread->exit_status; 
+  sema_up(&child_thread->sema_parent);
+
+  return exit_status;
 }
 
 /* Free the current process's resources. */
@@ -180,8 +182,6 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  sema_up(&thread_current()->sema_child);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -225,7 +225,8 @@ typedef uint32_t Elf32_Word, Elf32_Addr, Elf32_Off;
 typedef uint16_t Elf32_Half;
 
 /* For use with ELF types in printf(). */
-#define PE32Wx PRIx32   /* Print Elf32_Word in hexadecimal. */
+#define PE32Wx PRIx32   /* P  printf("worked\n");
+rint Elf32_Word in hexadecimal. */
 #define PE32Ax PRIx32   /* Print Elf32_Addr in hexadecimal. */
 #define PE32Ox PRIx32   /* Print Elf32_Off in hexadecimal. */
 #define PE32Hx PRIx16   /* Print Elf32_Half in hexadecimal. */
@@ -385,7 +386,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
           break;
         }
     }
-
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
