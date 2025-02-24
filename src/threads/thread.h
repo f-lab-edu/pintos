@@ -110,6 +110,8 @@ typedef int tid_t;
     struct list children;               /* List of child processes */
     struct list_elem childelem;         /* List element for child processes */
     struct semaphore sema_child;        /* Semaphore for waiting child process*/
+
+    int exit_status;                    /* Exit status for exit() */
 #endif
 
     /* Owned by thread.c. */
