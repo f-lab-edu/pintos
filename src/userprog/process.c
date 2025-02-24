@@ -21,7 +21,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -46,8 +45,7 @@ process_execute (const char *file_name)
   return tid;
 }
 
-/* Collapses additional spaces so that only single space remains
-*/
+/* Collapses additional spaces so that only single space remains */
 void collapse_spaces(char *str) {
   char *source = str, *destination = str;
   bool in_space = false;
@@ -68,8 +66,7 @@ void collapse_spaces(char *str) {
   *destination = '\0';
 }
 
-/* A thread function that loads a user process and starts it
-   running. */
+/* A thread function that loads a user process and starts it running. */
 static void
 start_process (void *file_name_)
 {
@@ -89,11 +86,6 @@ start_process (void *file_name_)
   }
   char *file_name = argv[0];
 
-  /* this is crucial because it ensures that the last argument in the argument list is a valid, empty string, 
-     which helps maintain proper stack alignment and marks the end of the argument list in low-level systems */
-  argv[argc][0] = '\0';    
-
-
   /* Initialize interrupt frame and load executable. */
   struct intr_frame if_;
   bool success;
@@ -104,45 +96,53 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
+  /* If load failed, quit. 
+     it should be file_name_ not file_name, because file_name_ points to the allocated page */
+  palloc_free_page (file_name_);    
   if (!success) 
     thread_exit ();
 
-
   /* Push arguments to interrupt frame with the 80x86 calling convention. 
-     The registers in interrupt frame will be restored to user stack of the loaded executable */
+     The registers in interrupt frame will be restored to user stack of the loaded executable  */
   int sum_bits = 0;
-  for(int length, current_count = argc -1; current_count > -1; --current_count) {
+  int64_t arguments_starting_points[MAX_COUNT_ARGUMENT];
+  for(int length, current_count = 0; current_count < argc; ++current_count) {
     length = strlen(argv[current_count]) + 1;
-    if_.esp -= length;    // decrement is needed because stack should be moved downward
+    if_.esp -= length;                 // decrement is needed because stack should be moved downward
     memcpy(if_.esp, argv[current_count], length);
+    arguments_starting_points[current_count] = if_.esp;
     sum_bits += length;
+  }  
+
+  uint8_t padding_value = (4 - sum_bits % 4) % 4;
+  if(padding_value != 0) {
+    if_.esp -= padding_value;
+    memset(if_.esp, 0, padding_value);      // use memset instead of memcpy
   }
-  uint8_t padding_value = 0;
-  for(int current_count = 0, end_count = (4 - sum_bits % 4) % 4; current_count < end_count; current_count++) {
-    --if_.esp;
-    memcpy(if_.esp, &padding_value, 1);
-  }
-  for(int current_count = argc; current_count > -1; --current_count) {
+  
+  if_.esp -= sizeof(char*);
+  memset(if_.esp, 0, sizeof(char*));
+  for(int current_count = argc - 1; current_count > -1; --current_count) {
     if_.esp -= sizeof(char*);
-    memcpy(if_.esp, &argv[current_count], sizeof(char*));
+    memcpy(if_.esp, &arguments_starting_points[current_count], sizeof(char*));        // store the actual physical memory address, not the address of local variable
   }
+
+  int64_t start_point = if_.esp;
   if_.esp -= sizeof(char**);
-  memcpy(if_.esp, &argv, sizeof(char**));
+  memcpy(if_.esp, &start_point, sizeof(char**));
   if_.esp -= sizeof(int);
   memcpy(if_.esp, &argc, sizeof(int));
-  void *fake_address = NULL;
-  if_.esp -= sizeof(void*);
-  memcpy(if_.esp, &fake_address, sizeof(void*));
   
-
+  if_.esp -= sizeof(char*);
+  memset(if_.esp, 0, sizeof(char*));
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -152,14 +152,23 @@ start_process (void *file_name_)
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting.. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  struct thread* child_thread = NULL, *current_thread = thread_current();
+  for(struct list_elem *current_element = list_begin(&current_thread->children), *end_element = list_end(&current_thread->children); current_element != end_element; current_element = list_next(current_element)) {
+    struct thread *thread_current_element = list_entry(current_element, struct thread, childelem);
+    if (thread_current_element->tid == child_tid)
+      child_thread = thread_current_element;
+  }
+  if(child_thread == NULL) {
+    return -1;
+  }
+
+  sema_down(&child_thread->sema_child);
+  list_remove(&current_thread->childelem);
+  return child_thread->status;
 }
 
 /* Free the current process's resources. */
@@ -169,22 +178,24 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  sema_up(&thread_current()->sema_child);
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
   if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
-    }
+  {
+    /* Correct ordering here is crucial.  We must set
+        cur->pagedir to NULL before switching page directories,
+        so that a timer interrupt can't switch back to the
+        process page directory.  We must activate the base page
+        directory before destroying the process's page
+        directory, or our active page directory will be one
+        that's been freed (and cleared). */
+    cur->pagedir = NULL;
+    pagedir_activate (NULL);
+    pagedir_destroy (pd);
+  }
 }
 
 /* Sets up the CPU for running user code in the current
@@ -202,7 +213,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -386,7 +397,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_close (file);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);
