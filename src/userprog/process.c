@@ -162,7 +162,7 @@ process_wait (tid_t child_tid)
     struct thread *thread_current_element = list_entry(current_element, struct thread, childelem);
     if (thread_current_element->tid == child_tid) {
       child_thread = thread_current_element;
-      list_remove(&current_element);
+      list_remove(current_element);
       break;
     }
   }
