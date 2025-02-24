@@ -14,6 +14,7 @@ struct file
 
     // new code for project 2
     struct list_elem fileelem;  /* List element for fd table */
+    int fd;                     /* fd value to identify proper file object*/
   };
 
 /* Opens a file for the given INODE, of which it takes ownership,
