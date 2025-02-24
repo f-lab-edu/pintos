@@ -10,6 +10,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -28,18 +29,22 @@ void exit(int status) {
   struct thread *current_thread = thread_current();
   printf("%s: exit(%d)\n", current_thread->name, status);
   current_thread->exit_status = status;
+
   thread_exit();
 }
 
 int exec(const char *cmd_line) {
-  return -1;    // todo
+  return process_execute(cmd_line);
 }
 
 int wait(int pid) {
-  return -1;    // todo
+  return process_wait(pid);
 }
 
 bool create(const char *file, unsigned initial_size) {
+  if(file == NULL)
+    return false;
+
   return filesys_create(file, initial_size);
 }
 
@@ -48,7 +53,13 @@ bool remove(const char *file) {
 }
 
 int open(const char *file) {
+  if(file == NULL)
+    return -1;
+
   struct file *current_file = filesys_open(file);
+  if(current_file == NULL)
+    return -1;
+
   struct thread *current_thread = thread_current();
   if(current_thread->next_fd == -1) {
     printf("out of fd table\n");
@@ -80,30 +91,38 @@ int read(int fd, void *buffer, unsigned size) {
     input_getc();
     return -1;    // todo
   }
-  else
-    return file_read(fd, buffer, size);
+  else {
+    if(thread_current()->fd_table[fd] == NULL)
+      return -1;
+    return file_read(thread_current()->fd_table[fd], buffer, size);
+  }
 }
 
 int write(int fd, const void *buffer, unsigned size) {
   if(fd == STDOUT_FILENO)
     putbuf(buffer, size);
-  else
+  else {
+    if(thread_current()->fd_table[fd] == NULL)
+      return -1;
     return file_write(thread_current()->fd_table[fd], buffer, size);
+  }
   return size;
 }
 
 void seek(int fd, unsigned poisiton) {
+  if(thread_current()->fd_table[fd] == NULL)
+    return;
   file_seek(thread_current()->fd_table[fd], poisiton);
 }
 unsigned tell(int fd) {
+  if(thread_current()->fd_table[fd] == NULL)
+    return;
   return file_tell(thread_current()->fd_table[fd]);
 }
 void close(int fd) {
   struct thread *current_thread = thread_current();
-  if(current_thread->fd_table[fd] == NULL) {
-    printf("try closing invalid fd\n");
+  if(current_thread->fd_table[fd] == NULL)
     return;
-  }
 
   file_close(current_thread->fd_table[fd]);
 
