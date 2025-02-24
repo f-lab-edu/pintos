@@ -205,6 +205,11 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+
+  /* push child process to parent */
+  list_push_back(&thread_current()->children, &t->childelem);
+
+
   /* Add to run queue. */
   thread_unblock(t);
 
@@ -582,6 +587,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->lock_to_wait = NULL;
   t->original_priority = priority;
   list_init(&t->donors);
+
+  list_init(&t->children);
+  sema_init(&t->sema_child, 0);
 
 
   old_level = intr_disable ();
